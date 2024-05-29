@@ -60,21 +60,29 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 {
    private static final Logger LOGGER = LoggerFactory.getLogger(ConcurrentBag.class);
 
+   // 存放状态为使用中，未使用，保留 三种状态的资源对象
    private final CopyOnWriteArrayList<T> sharedList;
    private final boolean weakThreadLocals;
-
+   // 存放当前线程归还的资源对象
    private final ThreadLocal<List<Object>> threadList;
    private final IBagStateListener listener;
+   // 当前等待获取资源的线程数
    private final AtomicInteger waiters;
+   // 线程池关闭标识
    private volatile boolean closed;
 
+   // 无界阻塞队列，出队和入队都可以选择是否阻塞
    private final SynchronousQueue<T> handoffQueue;
 
    public interface IConcurrentBagEntry
    {
+      // 未使用状态
       int STATE_NOT_IN_USE = 0;
+      // 使用中状态
       int STATE_IN_USE = 1;
+      // 移除状态
       int STATE_REMOVED = -1;
+      // 保留状态
       int STATE_RESERVED = -2;
 
       boolean compareAndSet(int expectState, int newState);
@@ -120,11 +128,14 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
    public T borrow(long timeout, final TimeUnit timeUnit) throws InterruptedException
    {
       // Try the thread-local list first
+      // 首先从threadList中获取资源
       final var list = threadList.get();
       for (int i = list.size() - 1; i >= 0; i--) {
+         // 如果不为空，则从当前线程资源集合中获取
          final var entry = list.remove(i);
          @SuppressWarnings("unchecked")
          final T bagEntry = weakThreadLocals ? ((WeakReference<T>) entry).get() : (T) entry;
+         // 从线程集合中末尾 cas获取资源
          if (bagEntry != null && bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
             return bagEntry;
          }
@@ -136,6 +147,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
          for (T bagEntry : sharedList) {
             if (bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
                // If we may have stolen another waiter's connection, request another bag add.
+               // 如果等待者超过1，则请求新增资源
                if (waiting > 1) {
                   listener.addBagItem(waiting - 1);
                }
@@ -143,11 +155,13 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
             }
          }
 
+         // 未获取到资源，请求新增资源
          listener.addBagItem(waiting);
 
          timeout = timeUnit.toNanos(timeout);
          do {
             final var start = currentTime();
+            // 阻塞等待handoff队列
             final T bagEntry = handoffQueue.poll(timeout, NANOSECONDS);
             if (bagEntry == null || bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
                return bagEntry;

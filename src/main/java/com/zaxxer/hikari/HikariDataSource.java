@@ -73,7 +73,9 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
     */
    public HikariDataSource(HikariConfig configuration)
    {
+      // 校验配置(不能同时赋值dataSourceClassName与driverClassName)
       configuration.validate();
+      // 通过反射将config中的配置的属性赋值给自己
       configuration.copyStateTo(this);
 
       LOGGER.info("{} - Starting...", configuration.getPoolName());

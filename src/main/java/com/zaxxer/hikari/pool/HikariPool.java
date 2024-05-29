@@ -70,6 +70,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
    private final PoolEntryCreator poolEntryCreator = new PoolEntryCreator();
    private final PoolEntryCreator postFillPoolEntryCreator = new PoolEntryCreator("After adding ");
+   // 创建连接线程池，核心线程数1，最大线程数1
    private final ThreadPoolExecutor addConnectionExecutor;
    private final ThreadPoolExecutor closeConnectionExecutor;
 
@@ -463,6 +464,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          final var maxLifetime = config.getMaxLifetime();
          if (maxLifetime > 0) {
             // variance up to 2.5% of the maxlifetime
+            // 生成超时定时任务时，在生命周期中引入随机性，避免大量连接过期
             final var variance = maxLifetime > 10_000 ? ThreadLocalRandom.current().nextLong( maxLifetime / 40 ) : 0;
             final var lifetime = maxLifetime - variance;
             poolEntry.setFutureEol(houseKeepingExecutorService.schedule(new MaxLifetimeTask(poolEntry), lifetime, MILLISECONDS));
@@ -471,6 +473,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          final long keepaliveTime = config.getKeepaliveTime();
          if (keepaliveTime > 0) {
             // variance up to 10% of the heartbeat time
+            // 生成验证心跳定时任务，在生命周期中引入随机性，避免大量连接过期
             final var variance = ThreadLocalRandom.current().nextLong(keepaliveTime / 10);
             final var heartbeatTime = keepaliveTime - variance;
             poolEntry.setKeepalive(houseKeepingExecutorService.scheduleWithFixedDelay(new KeepaliveTask(poolEntry), heartbeatTime, heartbeatTime, MILLISECONDS));
@@ -754,6 +757,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
        * @return true if we should create a connection, false if the need has disappeared
        */
       private synchronized boolean shouldContinueCreating() {
+         // 当满足配置并且当前存在线程等待获取空闲资源时才进行创建
          return poolState == POOL_NORMAL && getTotalConnections() < config.getMaximumPoolSize() &&
             (getIdleConnections() < config.getMinimumIdle() || connectionBag.getWaitingThreadCount() > getIdleConnections());
       }

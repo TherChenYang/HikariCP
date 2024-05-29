@@ -61,35 +61,46 @@ public class HikariConfig implements HikariConfigMXBean
    // Properties changeable at runtime through the HikariConfigMXBean
    //
    private volatile String catalog;
+   // 客户端等待连接池中连接的最大时间，超出该时间抛出异常
    private volatile long connectionTimeout;
    private volatile long validationTimeout;
+   // 连接最大空闲时间，当值为0时表示永远不会删除连接
    private volatile long idleTimeout;
    private volatile long leakDetectionThreshold;
+   // 连接最大存活时间，正在使用中的连接即使达到最大存活时间，也不会被删除
    private volatile long maxLifetime;
+   // 连接池最大连接数，包含空闲和正在使用的连接
    private volatile int maxPoolSize;
+   // 最小空闲连接数
    private volatile int minIdle;
    private volatile String username;
    private volatile String password;
 
    // Properties NOT changeable at runtime
-   //
+   // 连接池初始化超时时间
    private long initializationFailTimeout;
+   // 初始化SQL,在连接池中的连接入池之前执行
    private String connectionInitSql;
    private String connectionTestQuery;
    private String dataSourceClassName;
    private String dataSourceJndiName;
+   // 驱动名称
    private String driverClassName;
    private String exceptionOverrideClassName;
+   // jdbc连接
    private String jdbcUrl;
    private String poolName;
    private String schema;
    private String transactionIsolationName;
+   // 连接池中的连接是否自动提交事务
    private boolean isAutoCommit;
    private boolean isReadOnly;
    private boolean isIsolateInternalQueries;
    private boolean isRegisterMbeans;
+   // 是否允许线程池暂停
    private boolean isAllowPoolSuspension;
    private DataSource dataSource;
+   // 数据源相关配置
    private Properties dataSourceProperties;
    private ThreadFactory threadFactory;
    private ScheduledExecutorService scheduledExecutor;
@@ -948,6 +959,7 @@ public class HikariConfig implements HikariConfigMXBean
    public void copyStateTo(HikariConfig other)
    {
       for (var field : HikariConfig.class.getDeclaredFields()) {
+         // field.getModifiers() 获取成员变量的访问修饰符
          if (!Modifier.isFinal(field.getModifiers())) {
             field.setAccessible(true);
             try {
@@ -1004,11 +1016,13 @@ public class HikariConfig implements HikariConfigMXBean
       jdbcUrl = getNullIfEmpty(jdbcUrl);
 
       // Check Data Source Options
+      // 用于dataSource显式赋值场景, dataSource和dataSourceClassName同时有值时忽略厚着
       if (dataSource != null) {
          if (dataSourceClassName != null) {
             LOGGER.warn("{} - using dataSource and ignoring dataSourceClassName.", poolName);
          }
       }
+      // dataSourceClassName与driverClassName 不能同时有值
       else if (dataSourceClassName != null) {
          if (driverClassName != null) {
             LOGGER.error("{} - cannot use driverClassName and dataSourceClassName together.", poolName);
@@ -1020,9 +1034,12 @@ public class HikariConfig implements HikariConfigMXBean
             LOGGER.warn("{} - using dataSourceClassName and ignoring jdbcUrl.", poolName);
          }
       }
+      // 当jdbcUrl不为空时，driverClassName可以为空，可以通过DriverManager.getDriver()通过jdbcUrl获取相应的driver
+      // 参考日志 'Loaded driver with class name '
       else if (jdbcUrl != null || dataSourceJndiName != null) {
          // ok
       }
+      // 当jdbcUrl为空时，driverClassName不能单独存在
       else if (driverClassName != null) {
          LOGGER.error("{} - jdbcUrl is required with driverClassName.", poolName);
          throw new IllegalArgumentException("jdbcUrl is required with driverClassName.");

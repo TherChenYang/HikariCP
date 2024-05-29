@@ -51,6 +51,7 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @SuppressWarnings("unchecked")
    public FastList(Class<?> clazz)
    {
+      // 使用@HotSpotIntrinsicCandidate注解标注，标识HotSpot会对方法进行CPU指令优化
       this.elementData = (T[]) Array.newInstance(clazz, 32);
       this.clazz = clazz;
    }
@@ -75,6 +76,10 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @Override
    public boolean add(T element)
    {
+      // 对比ArrayList取消了modCount的自增操作
+      // 使用System.arraycopy代替Arrays.copyOf(copyOf的底层是arraycopy,但这里可以避免调用栈过深)
+      // 对比jdk8版本，免去了很多繁杂的检查操作
+      // jdk11已经去除了复杂的检查操作
       if (size < elementData.length) {
          elementData[size++] = element;
       }
@@ -101,6 +106,7 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @Override
    public T get(int index)
    {
+      // 对比ArrayList没有进行索引检查，如果越界直接抛异常
       return elementData[index];
    }
 
@@ -128,6 +134,11 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @Override
    public boolean remove(Object element)
    {
+      // 当要溢出的元素是最后一个元素时，从后向前遍历是最高效的
+      // 当移除元素是最后位置时，数组的其他元素无需移动
+
+      // todo 解释为什么hikariCP中往往是最后的元素被移除
+      // ArrayList是从前向后遍历的
       for (var index = size - 1; index >= 0; index--) {
          if (element == elementData[index]) {
             final var numMoved = size - index - 1;
