@@ -89,13 +89,18 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     */
    public HikariPool(final HikariConfig config)
    {
+      // 初始化PoolBase-ds
       super(config);
 
+      // 存储连接的容器
       this.connectionBag = new ConcurrentBag<>(this);
+      // 是否允许连接池终端
       this.suspendResumeLock = config.isAllowPoolSuspension() ? new SuspendResumeLock() : SuspendResumeLock.FAUX_LOCK;
 
+      // 核心线程数为1的管家线程
       this.houseKeepingExecutorService = initializeHouseKeepingExecutorService();
 
+      // 快速失败检查，检查流程：创建一个conn，然后执行initSQL
       checkFailFast();
 
       if (config.getMetricsTrackerFactory() != null) {
@@ -111,13 +116,17 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
 
       ThreadFactory threadFactory = config.getThreadFactory();
 
+      // 连接池最大数量
       final int maxPoolSize = config.getMaximumPoolSize();
       LinkedBlockingQueue<Runnable> addConnectionQueue = new LinkedBlockingQueue<>(maxPoolSize);
+      // 创建连接的线程池，核心线程数=最大线程数=1，拒绝策略(静默)
       this.addConnectionExecutor = createThreadPoolExecutor(addConnectionQueue, poolName + " connection adder", threadFactory, new CustomDiscardPolicy());
+      // 关闭连接的线程池，核心线程数=最大线程数=1，拒绝策略(谁调用谁处理)
       this.closeConnectionExecutor = createThreadPoolExecutor(maxPoolSize, poolName + " connection closer", threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
 
       this.leakTaskFactory = new ProxyLeakTaskFactory(config.getLeakDetectionThreshold(), houseKeepingExecutorService);
 
+      // 延迟时间100ms，任务间隔时间30ms(用于检测空闲连接 - 退休/保持)
       this.houseKeeperTask = houseKeepingExecutorService.scheduleWithFixedDelay(new HouseKeeper(), 100L, housekeepingPeriodMs, MILLISECONDS);
 
       if (Boolean.getBoolean("com.zaxxer.hikari.blockUntilFilled") && config.getInitializationFailTimeout() > 1) {
@@ -461,6 +470,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       try {
          final var poolEntry = newPoolEntry();
 
+         // 最大存活时间，是由空闲的连接才会进行此检测
          final var maxLifetime = config.getMaxLifetime();
          if (maxLifetime > 0) {
             // variance up to 2.5% of the maxlifetime
@@ -470,6 +480,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
             poolEntry.setFutureEol(houseKeepingExecutorService.schedule(new MaxLifetimeTask(poolEntry), lifetime, MILLISECONDS));
          }
 
+         // 是否存活检测
          final long keepaliveTime = config.getKeepaliveTime();
          if (keepaliveTime > 0) {
             // variance up to 10% of the heartbeat time
@@ -543,6 +554,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     */
    private void checkFailFast()
    {
+      // 初始默认值为1(默认都要进行快速失败检查)
       final var initializationTimeout = config.getInitializationFailTimeout();
       if (initializationTimeout < 0) {
          return;
@@ -552,6 +564,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       do {
          final var poolEntry = createPoolEntry();
          if (poolEntry != null) {
+            // 如果最小空闲连接数为0，新生成的连接关闭掉
             if (config.getMinimumIdle() > 0) {
                connectionBag.add(poolEntry);
                logger.info("{} - Added connection {}", poolName, poolEntry.connection);
@@ -563,6 +576,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
             return;
          }
 
+         // 因为之前创建了管家线程池，所以抛出异常的时候需要shutdown管家线程池
          if (getLastConnectionFailure() instanceof ConnectionSetupException) {
             throwPoolInitializationException(getLastConnectionFailure().getCause());
          }
@@ -781,6 +795,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
             validationTimeout = config.getValidationTimeout();
             leakTaskFactory.updateLeakDetectionThreshold(config.getLeakDetectionThreshold());
 
+            // 通过cas设置通过Mbean改变后的catalog的值
             if (config.getCatalog() != null && !config.getCatalog().equals(catalog)) {
                catalogUpdater.set(HikariPool.this, config.getCatalog());
             }
@@ -789,6 +804,10 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
             final var now = currentTime();
 
             // Detect retrograde time, allowing +128ms as per NTP spec.
+            // 检测系统时钟的异常变化，例如回退(retrograde)或者跳跃(leap)
+            // 检测时钟回退
+            // 如果当前时间+128ms(NTP网络时间协议，允许始终回退的最大误差为128ms) < previous + houseKeeping间隔时间
+            // 则认为发生了时钟回退
             if (plusMillis(now, 128) < plusMillis(previous, housekeepingPeriodMs)) {
                logger.warn("{} - Retrograde clock change detected (housekeeper delta={}), soft-evicting connections from pool.",
                            poolName, elapsedDisplayString(previous, now));
@@ -796,6 +815,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
                softEvictConnections();
                return;
             }
+            // 检测是否存在时钟跳跃或者当前任务长时间未执行
             else if (now > plusMillis(previous, (3 * housekeepingPeriodMs) / 2)) {
                // No point evicting for forward clock motion, this merely accelerates connection retirement anyway
                logger.warn("{} - Thread starvation or clock leap detected (housekeeper delta={}).", poolName, elapsedDisplayString(previous, now));

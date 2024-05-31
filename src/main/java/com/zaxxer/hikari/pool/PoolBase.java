@@ -326,7 +326,7 @@ abstract class PoolBase
          PropertyElf.setTargetFromProperties(ds, dataSourceProperties);
       }
       else if (jdbcUrl != null && ds == null) {
-         // 通过jdbcUrl创建DriverDataSource
+         // 通过jdbcUrl创建DriverDataSource(这里driverClassName可以为空，可以通过url中的前缀判断所需要的驱动)
          ds = new DriverDataSource(jdbcUrl, driverClassName, dataSourceProperties, username, password);
       }
       else if (dataSourceJNDI != null && ds == null) {
@@ -360,6 +360,8 @@ abstract class PoolBase
          var username = config.getUsername();
          var password = config.getPassword();
 
+         // 如果是默认的即调用DriverDataSource.getConnection
+         // 内部其实是调用Driver.connect方法
          connection = (username == null) ? dataSource.getConnection() : dataSource.getConnection(username, password);
          if (connection == null) {
             throw new SQLTransientConnectionException("DataSource returned null unexpectedly");
@@ -426,6 +428,7 @@ abstract class PoolBase
             connection.setSchema(schema);
          }
 
+         // 先将networkTimeout设置为validationTimeout，执行完验证sql，再调整为networkTimeout
          executeSql(connection, config.getConnectionInitSql(), true);
 
          setNetworkTimeout(connection, networkTimeout);
@@ -599,6 +602,7 @@ abstract class PoolBase
       if ((dsClassName != null && dsClassName.contains("Mysql")) ||
           (jdbcUrl != null && jdbcUrl.contains("mysql")) ||
           (dataSource != null && dataSource.getClass().getName().contains("Mysql"))) {
+         // 仅针对于mysql，使用同步的处理器
          netTimeoutExecutor = new SynchronousExecutor();
       }
       else {

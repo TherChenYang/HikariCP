@@ -47,6 +47,7 @@ public final class DriverDataSource implements DataSource
          driverProperties.setProperty(entry.getKey().toString(), entry.getValue().toString());
       }
 
+      // 设置账户名与密码
       if (username != null) {
          driverProperties.put(USER, driverProperties.getProperty(USER, username));
       }
@@ -55,6 +56,7 @@ public final class DriverDataSource implements DataSource
       }
 
       if (driverClassName != null) {
+         // JDK11中的DriverManager没有静态代码块，Driver的初始化放在第一次获取Driver时
          var drivers = DriverManager.getDrivers();
          while (drivers.hasMoreElements()) {
             var d = drivers.nextElement();
@@ -64,11 +66,13 @@ public final class DriverDataSource implements DataSource
             }
          }
 
+         // 当未命中对应的Driver，通过类加载器进行加载
          if (driver == null) {
             LOGGER.warn("Registered driver with driverClassName={} was not found, trying direct instantiation.", driverClassName);
             Class<?> driverClass = null;
             var threadContextClassLoader = Thread.currentThread().getContextClassLoader();
             try {
+               // 通过线程上下文加载器进行加载
                if (threadContextClassLoader != null) {
                   try {
                      driverClass = threadContextClassLoader.loadClass(driverClassName);
@@ -80,6 +84,7 @@ public final class DriverDataSource implements DataSource
                   }
                }
 
+               // 通过当前类的类加载器进行加载
                if (driverClass == null) {
                   driverClass = this.getClass().getClassLoader().loadClass(driverClassName);
                   LOGGER.debug("Driver class {} found in the HikariConfig class classloader {}", driverClassName, this.getClass().getClassLoader());
@@ -98,13 +103,16 @@ public final class DriverDataSource implements DataSource
          }
       }
 
+      // 密码替换
       final var sanitizedUrl = jdbcUrl.replaceAll("([?&;][^&#;=]*[pP]assword=)[^&#;]*", "$1<masked>");
-      
+
       try {
+         // 假如DriverClassName没值的情况下，会通过jdbcUrl寻找相应的driver
          if (driver == null) {
             driver = DriverManager.getDriver(jdbcUrl);
             LOGGER.debug("Loaded driver with class name {} for jdbcUrl={}", driver.getClass().getName(), sanitizedUrl);
          }
+         // 验证当前Driver是否适配配置的jdbcUrl
          else if (!driver.acceptsURL(jdbcUrl)) {
             throw new RuntimeException("Driver " + driverClassName + " claims to not accept jdbcUrl, " + sanitizedUrl);
          }
